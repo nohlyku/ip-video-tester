@@ -1,0 +1,8 @@
+#virtual environments
+venv/
+env/
+.venv/
+.env/
+
+#backups
+backup/ 
