@@ -161,11 +161,3 @@ Change `level=logging.INFO` in the script to reduce verbosity (only warnings and
 ### GUI doesn't appear (WSL on Windows 10)
 - Install and configure an X server like VcXsrv
 - Set `DISPLAY` environment variable: `export DISPLAY=:0`
-
-## Legacy Tools
-
-The original single-protocol tools are still available:
-- `rtsp_publisher.py` - RTSP only
-- `srt_publisher.py` - SRT only
-
-However, `ip_video_test_publisher.py` is recommended as it combines both features in one tool.
