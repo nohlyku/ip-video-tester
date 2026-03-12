@@ -17,8 +17,9 @@ import subprocess
 import shutil
 import threading
 import time
+import os
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import sys
 import logging
 import platform
@@ -123,7 +124,8 @@ class StreamPublisher:
     """
 
     def __init__(self, protocol: str, host: str, port: int, path_or_streamid: str,
-                 src_filter: str, label: str, stream_id: str, font_path: str = None):
+                 src_filter: str, label: str, stream_id: str, font_path: str | None = None,
+                 mp4_path: str | None = None, overlay_label: str = "", show_clock: bool = True):
         self.protocol = protocol.upper()  # "RTSP" or "SRT"
         self.host = host
         self.port = port
@@ -132,6 +134,9 @@ class StreamPublisher:
         self.label = label
         self.stream_id = stream_id
         self.font_path = font_path
+        self.mp4_path = mp4_path
+        self.overlay_label = overlay_label  # text burned into video; empty = hidden
+        self.show_clock = show_clock
 
         self._proc = None
         self._monitor_thread = None
@@ -156,29 +161,50 @@ class StreamPublisher:
             return f"srt://{self.host}:{self.port} (/{self.path_or_streamid})"
 
     def _build_cmd(self):
-        cmd = [
-            "ffmpeg",
-            "-re",
-            "-f", "lavfi",
-            "-i", self.src_filter,
-        ]
-        
-        # Add text overlay if font is available
+        if self.mp4_path:
+            cmd = [
+                "ffmpeg",
+                "-re",
+                "-stream_loop", "-1",
+                "-i", self.mp4_path,
+            ]
+        else:
+            cmd = [
+                "ffmpeg",
+                "-re",
+                "-f", "lavfi",
+                "-i", self.src_filter,
+            ]
+
+        # Build video filter chain
+        vf_parts = []
+
+        if self.mp4_path:
+            # Normalise resolution and frame rate to match test-video output
+            vf_parts.append("scale=1280:720")
+            vf_parts.append("fps=30")
+
+        # Add text overlays if font is available
         if self.font_path:
-            safe_label = self.label.replace(":", "\\:").replace("'", "\\'")
-            label_filter = (
-                f"drawtext=fontfile={self.font_path}:"
-                f"text='ID\\: {self.stream_id}  {safe_label}':"
-                f"fontsize=28:fontcolor=white:borderw=2:x=10:y=10"
-            )
-            clock_filter = (
-                f"drawtext=fontfile={self.font_path}:"
-                f"text='%{{localtime\\:%X}}':"
-                f"fontsize=28:fontcolor=white:borderw=2:x=(w-tw-10):y=10"
-            )
-            overlay = f"{label_filter},{clock_filter}"
-            cmd.extend(["-vf", overlay])
-        
+            if self.overlay_label:
+                safe_label = self.overlay_label.replace(":", "\\:").replace("'", "\\'")
+                label_filter = (
+                    f"drawtext=fontfile={self.font_path}:"
+                    f"text='ID\\: {self.stream_id}  {safe_label}':"
+                    f"fontsize=28:fontcolor=white:borderw=2:x=10:y=10"
+                )
+                vf_parts.append(label_filter)
+            if self.show_clock:
+                clock_filter = (
+                    f"drawtext=fontfile={self.font_path}:"
+                    f"text='%{{localtime\\:%X}}':"
+                    f"fontsize=28:fontcolor=white:borderw=2:x=(w-tw-10):y=10"
+                )
+                vf_parts.append(clock_filter)
+
+        if vf_parts:
+            cmd.extend(["-vf", ",".join(vf_parts)])
+
         # Common encoding settings
         cmd.extend([
             "-c:v", "libx264",
@@ -187,6 +213,9 @@ class StreamPublisher:
             "-b:v", "2000k",
             "-g", "30",
         ])
+
+        if self.mp4_path:
+            cmd.append("-an")  # strip audio – video-only stream
         
         # Protocol-specific output settings
         if self.protocol == "RTSP":
@@ -295,7 +324,7 @@ class StreamPublisher:
 class StreamRow:
     """One row of controls for a single stream."""
 
-    def __init__(self, parent_frame, row_index: int, preset: dict, protocol_var: tk.StringVar, font_path: str):
+    def __init__(self, parent_frame, row_index: int, preset: dict, protocol_var: tk.StringVar, font_path: str | None):
         self.preset = preset
         self.protocol_var = protocol_var
         self.font_path = font_path
@@ -360,6 +389,77 @@ class StreamRow:
         )
         self.status_label.grid(row=row_index, column=10, padx=(6, 8), sticky="w")
 
+        # ── Source selection (sub-row)
+        source_frame = tk.Frame(parent_frame)
+        source_frame.grid(row=row_index + 1, column=0, columnspan=11, sticky="w", padx=(8, 4), pady=(0, 6))
+
+        tk.Label(source_frame, text="Source:", font=("Helvetica", 9)).pack(side="left")
+
+        self.source_var = tk.StringVar(value="Test Video")
+        self.source_menu = ttk.Combobox(
+            source_frame,
+            textvariable=self.source_var,
+            values=["Test Video", "MP4 File"],
+            state="readonly",
+            width=12,
+        )
+        self.source_menu.pack(side="left", padx=(4, 8))
+        self.source_menu.bind("<<ComboboxSelected>>", self._on_source_change)
+
+        self.mp4_path_var = tk.StringVar()
+        self.mp4_entry = tk.Entry(source_frame, textvariable=self.mp4_path_var, width=50, state="disabled")
+        self.mp4_entry.pack(side="left", padx=(0, 4))
+
+        self.browse_btn = tk.Button(
+            source_frame,
+            text="Browse…",
+            command=self._browse_mp4,
+            state="disabled",
+            font=("Helvetica", 9),
+        )
+        self.browse_btn.pack(side="left")
+
+        # ── Overlay controls (same sub-row)
+        ttk.Separator(source_frame, orient="vertical").pack(side="left", fill="y", padx=10, pady=2)
+
+        tk.Label(source_frame, text="Overlay label:", font=("Helvetica", 9)).pack(side="left")
+        self._default_overlay_label = preset["label"]
+        self.overlay_label_var = tk.StringVar(value=preset["label"])
+        self.overlay_label_entry = tk.Entry(source_frame, textvariable=self.overlay_label_var, width=28)
+        self.overlay_label_entry.pack(side="left", padx=(4, 8))
+        tk.Label(source_frame, text="(blank = hidden)", fg="#888", font=("Helvetica", 8)).pack(side="left")
+
+        self.show_clock_var = tk.BooleanVar(value=True)
+        self.clock_check = tk.Checkbutton(
+            source_frame,
+            text="Show clock",
+            variable=self.show_clock_var,
+            font=("Helvetica", 9),
+        )
+        self.clock_check.pack(side="left", padx=(12, 0))
+
+    def _on_source_change(self, event=None):
+        if self.source_var.get() == "MP4 File":
+            self.mp4_entry.config(state="normal")
+            self.browse_btn.config(state="normal")
+        else:
+            self.mp4_entry.config(state="disabled")
+            self.browse_btn.config(state="disabled")
+
+    def _browse_mp4(self):
+        path = filedialog.askopenfilename(
+            title="Select Video File",
+            filetypes=[
+                ("Video files", "*.mp4 *.mkv *.avi *.mov *.m4v"),
+                ("All files", "*.*"),
+            ],
+        )
+        if path:
+            self.mp4_path_var.set(path)
+            # Auto-fill overlay label with filename (no extension) if still at default
+            if self.overlay_label_var.get() == self._default_overlay_label:
+                self.overlay_label_var.set(os.path.splitext(os.path.basename(path))[0])
+
     def update_protocol_fields(self):
         """Update field labels and defaults when protocol changes."""
         protocol = self.protocol_var.get()
@@ -393,6 +493,16 @@ class StreamRow:
             messagebox.showerror("Invalid Input", "Port must be an integer.")
             return
 
+        mp4_path = None
+        if self.source_var.get() == "MP4 File":
+            mp4_path = self.mp4_path_var.get().strip()
+            if not mp4_path:
+                messagebox.showerror("No File Selected", "Please select a video file before starting.")
+                return
+
+        overlay_label = self.overlay_label_var.get().strip()
+        show_clock = self.show_clock_var.get()
+
         try:
             self.publisher = StreamPublisher(
                 protocol, host, port, path_or_streamid,
@@ -400,6 +510,9 @@ class StreamRow:
                 self.preset["label"],
                 stream_id,
                 self.font_path,
+                mp4_path=mp4_path,
+                overlay_label=overlay_label,
+                show_clock=show_clock,
             )
             self.publisher.start()
         except Exception as exc:
@@ -425,12 +538,19 @@ class StreamRow:
         self._set_fields_state("normal")
 
     def _set_fields_state(self, state):
-        for widget in [self.host_entry, self.port_entry, self.path_entry, self.id_entry]:
+        for widget in [self.host_entry, self.port_entry, self.path_entry, self.id_entry,
+                       self.overlay_label_entry, self.clock_check]:
             widget.config(state=state)
+        self.source_menu.config(state="readonly" if state == "normal" else "disabled")
+        if state == "normal":
+            self._on_source_change()  # restore mp4 controls to their correct state
+        else:
+            self.mp4_entry.config(state="disabled")
+            self.browse_btn.config(state="disabled")
 
 
 class App:
-    def __init__(self, root: tk.Tk, font_path: str):
+    def __init__(self, root: tk.Tk, font_path: str | None):
         self.font_path = font_path
         root.title("IP Video Stream Publisher")
         root.resizable(True, False)
@@ -512,7 +632,8 @@ class App:
 
         self.rows = []
         for i, preset in enumerate(STREAM_PRESETS):
-            row = StreamRow(grid, i + 2, preset, self.protocol_var, self.font_path)
+            # Each stream occupies 2 grid rows: main controls + source selector
+            row = StreamRow(grid, i * 2 + 2, preset, self.protocol_var, self.font_path)
             self.rows.append(row)
 
         # ── Footer

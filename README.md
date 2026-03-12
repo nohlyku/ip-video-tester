@@ -1,6 +1,6 @@
 # IP Video Stream Publisher
 
-A cross-platform Tkinter GUI tool that generates and pushes up to 4 independent test video streams to a remote server (e.g. MediaMTX) using ffmpeg. Supports both **RTSP** and **SRT** protocols.
+A cross-platform Tkinter GUI tool that generates and pushes up to 4 independent video streams to a remote server (e.g. MediaMTX) using ffmpeg. Each stream can output a synthetic test pattern **or loop an MP4 file**. Supports both **RTSP** and **SRT** protocols.
 
 ## Prerequisites
 
@@ -52,9 +52,15 @@ No virtual environment or pip packages required — the script uses only the Pyt
 
 1. **Select Protocol** — Choose RTSP or SRT using the radio buttons at the top
 2. **Configure Streams** — Each row represents one stream with configurable host, port, path/stream ID, and display ID
-3. **Click "Start"** on individual streams or **"Start All"** to begin publishing
-4. The status column shows `PUSHING → url` when a stream is active
-5. **Click "Stop"** or **"Stop All"** to terminate streams
+3. **Choose a source** — Select *Test Video* (default) or *MP4 File* per stream using the Source drop-down
+   - When *MP4 File* is selected, click **Browse…** to pick a file; the video loops automatically
+   - Supported formats: `.mp4`, `.mkv`, `.avi`, `.mov`, `.m4v`
+4. **Customise overlays** — Each stream has two optional burned-in overlays:
+   - **Overlay label** — editable text shown in the top-left corner; defaults to the test-pattern name or the MP4 filename (auto-filled on Browse); leave blank to hide it entirely
+   - **Show clock** checkbox — uncheck to suppress the real-time clock in the top-right corner
+5. **Click "Start"** on individual streams or **"Start All"** to begin publishing
+6. The status column shows `PUSHING → url` when a stream is active
+7. **Click "Stop"** or **"Stop All"** to terminate streams
 
 **Important**: Change the protocol BEFORE starting any streams. You cannot change protocols while streams are running.
 
@@ -90,10 +96,10 @@ vlc srt://127.0.0.1:8890?streamid=read:/stream1
 |--------|---------|-----------|---------------|
 | 1 | SMPTE Bars | `/stream1` | `stream1` |
 | 2 | Test Pattern | `/stream2` | `stream2` |
-| 3 | Blue + Label | `/stream3` | `stream3` |
+| 3 | Color Bars (blue) | `/stream3` | `stream3` |
 | 4 | Noise | `/stream4` | `stream4` |
 
-All streams output **1280x720 @ 30fps H.264** at **2 Mbps** with a real-time clock and stream ID overlay.
+All streams output **1280x720 @ 30fps H.264** at **2 Mbps**. MP4 sources are automatically scaled and resampled to match this format. Overlays (label and clock) are enabled by default when a font is found on the system.
 
 ## Platform-Specific Notes
 
@@ -106,13 +112,6 @@ All streams output **1280x720 @ 30fps H.264** at **2 Mbps** with a real-time clo
 - Fonts are automatically detected from `/usr/share/fonts/`
 - Requires X11 display (should work out of the box on most desktop distros)
 
-### WSL (Windows Subsystem for Linux)
-- **Windows 11 (WSL2)**: WSLg is built-in — the GUI should appear automatically
-- **Windows 10**: Install [VcXsrv](https://sourceforge.net/projects/vcxsrv/) or similar X server, then run:
-  ```bash
-  export DISPLAY=:0
-  python3 ip_video_test_publisher.py
-  ```
 
 ### macOS
 - Fonts are automatically detected from system font directories
@@ -149,14 +148,20 @@ Change `level=logging.INFO` in the script to reduce verbosity (only warnings and
 - **Linux/Mac**: Install with your package manager (`apt`, `brew`, etc.)
 
 ### No text overlay on streams
-- The script couldn't find a suitable font file
-- Streams will work fine, just without the clock and ID overlay
+- The script couldn't find a suitable font file — overlays require a TTF font
+- Streams will work fine, just without any burned-in text
 - On Windows, ensure fonts exist in `C:/Windows/Fonts/`
+- You can also hide overlays intentionally: clear the **Overlay label** field and uncheck **Show clock**
 
 ### Stream won't start or immediately fails
 - Check that the server is running and accessible
 - Verify the port is correct (8554 for RTSP, 8890 for SRT)
 - Check the console logs for detailed ffmpeg error messages
+
+### MP4 stream fails immediately
+- Confirm the file path is correct and the file is readable
+- Ensure ffmpeg was built with support for the file's codec (H.264/AAC files work universally)
+- Audio is automatically stripped from MP4 sources; video-only output is expected
 
 ### GUI doesn't appear (WSL on Windows 10)
 - Install and configure an X server like VcXsrv
