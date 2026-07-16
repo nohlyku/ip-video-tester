@@ -33,6 +33,16 @@ log = logging.getLogger("ip_video_publisher")
 
 RECONNECT_DELAY = 3  # seconds between reconnect attempts
 
+
+def get_ffmpeg_exe() -> str:
+    """Return path to ffmpeg, preferring the bundled binary when frozen by PyInstaller."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass is not None:
+        bundled = os.path.join(meipass, "ffmpeg.exe")
+        if os.path.isfile(bundled):
+            return bundled
+    return "ffmpeg"
+
 # ── Platform-specific font detection ─────────────────────────────────────────
 def get_default_font():
     """Returns a font file path that exists on the current platform."""
@@ -163,14 +173,14 @@ class StreamPublisher:
     def _build_cmd(self):
         if self.mp4_path:
             cmd = [
-                "ffmpeg",
+                get_ffmpeg_exe(),
                 "-re",
                 "-stream_loop", "-1",
                 "-i", self.mp4_path,
             ]
         else:
             cmd = [
-                "ffmpeg",
+                get_ffmpeg_exe(),
                 "-re",
                 "-f", "lavfi",
                 "-i", self.src_filter,
@@ -238,11 +248,19 @@ class StreamPublisher:
         log.debug("Command: %s", " ".join(cmd))
 
         self._error = None
-        self._proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        if platform.system() == "Windows":
+            self._proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        else:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
         self._running = True
         log.info("ffmpeg started (pid %d), pushing to %s", self._proc.pid, self.display_url)
 
@@ -324,7 +342,7 @@ class StreamPublisher:
 class StreamRow:
     """One row of controls for a single stream."""
 
-    def __init__(self, parent_frame, row_index: int, preset: dict, protocol_var: tk.StringVar, font_path: str | None):
+    def __init__(self, parent_frame, row_index: int, stream_number: int, preset: dict, protocol_var: tk.StringVar, font_path: str | None):
         self.preset = preset
         self.protocol_var = protocol_var
         self.font_path = font_path
@@ -361,7 +379,7 @@ class StreamRow:
 
         # ── Stream ID (display ID for overlay)
         tk.Label(parent_frame, text="ID:").grid(row=row_index, column=7, sticky="e")
-        self.id_var = tk.StringVar(value=str(row_index + 1))
+        self.id_var = tk.StringVar(value=str(stream_number))
         self.id_entry = tk.Entry(parent_frame, textvariable=self.id_var, width=6)
         self.id_entry.grid(row=row_index, column=8, padx=4)
 
@@ -551,6 +569,7 @@ class StreamRow:
 
 class App:
     def __init__(self, root: tk.Tk, font_path: str | None):
+        self.root = root
         self.font_path = font_path
         root.title("IP Video Stream Publisher")
         root.resizable(True, False)
@@ -633,7 +652,7 @@ class App:
         self.rows = []
         for i, preset in enumerate(STREAM_PRESETS):
             # Each stream occupies 2 grid rows: main controls + source selector
-            row = StreamRow(grid, i * 2 + 2, preset, self.protocol_var, self.font_path)
+            row = StreamRow(grid, i * 2 + 2, i + 1, preset, self.protocol_var, self.font_path)
             self.rows.append(row)
 
         # ── Footer
@@ -702,12 +721,13 @@ class App:
         log.info("Shutting down - stopping all streams")
         self.stop_all()
         log.info("All streams stopped, exiting")
-        root.destroy()
+        self.root.destroy()
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    if shutil.which("ffmpeg") is None:
+    _ffmpeg = get_ffmpeg_exe()
+    if _ffmpeg == "ffmpeg" and shutil.which("ffmpeg") is None:
         msg = (
             "ffmpeg not found on PATH.\n\n"
             "Windows: Download from https://ffmpeg.org/download.html\n"
@@ -723,6 +743,14 @@ if __name__ == "__main__":
         log.info("Using font: %s", font_path)
     else:
         log.info("No font found - text overlay disabled")
+
+    # Enable DPI awareness on Windows to prevent blurry text on scaled displays
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass  # Older Windows versions may not support this
 
     log.info("ffmpeg found - launching GUI")
     root = tk.Tk()
