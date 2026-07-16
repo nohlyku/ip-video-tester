@@ -1,168 +1,114 @@
 # IP Video Stream Publisher
 
-A cross-platform Tkinter GUI tool that generates and pushes up to 4 independent video streams to a remote server (e.g. MediaMTX) using ffmpeg. Each stream can output a synthetic test pattern **or loop an MP4 file**. Supports both **RTSP** and **SRT** protocols.
+Pushes up to 4 test video streams to an RTSP or SRT server using ffmpeg. Good for testing video pipelines, NVRs, decoders, or anything else that needs a live stream without a real camera.
 
-## Prerequisites
+![screenshot placeholder]
 
-- **Python 3.10+** (uses only standard library modules)
-- **ffmpeg** with `libx264` support
-- A streaming server accepting RTSP or SRT connections (e.g. [MediaMTX](https://github.com/bluenviron/mediamtx))
+---
 
-## Setup
+## What you need
 
-### 1. Install ffmpeg
+- **ffmpeg** — either on your PATH or placed next to the script/exe
+- A streaming server — [MediaMTX](https://github.com/bluenviron/mediamtx) is the easiest option
+- Python 3.10+ (only if running the script directly; not needed for the .exe)
 
-#### Windows
-1. Download ffmpeg from [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)
-2. Extract the zip file
-3. Add the `bin` folder to your PATH, or place `ffmpeg.exe` in the same folder as the script
+---
 
-#### Linux (including WSL)
+## Quickstart
+
+### 1. Get ffmpeg
+
+**Windows** — download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (grab `ffmpeg-release-essentials.zip`), extract it, and either add the `bin/` folder to your PATH or drop `ffmpeg.exe` next to the app.
+
+**Linux**
 ```bash
-sudo apt-get update && sudo apt-get install -y ffmpeg
+sudo apt install ffmpeg
 ```
 
-#### macOS
+**macOS**
 ```bash
 brew install ffmpeg
 ```
 
-### 2. Start a streaming server
+### 2. Start a server
 
-If you don't already have one running, MediaMTX is the easiest option and supports both protocols:
+MediaMTX works out of the box with no config needed:
 
 ```bash
-# RTSP (port 8554) + SRT (port 8890)
 docker run --rm -p 8554:8554 -p 8890:8890/udp bluenviron/mediamtx
 ```
 
-This starts a server on `localhost` that auto-creates stream paths on first publish.
+That gives you an RTSP server on port 8554 and SRT on 8890. Any path you publish to gets created automatically.
 
-### 3. Run the publisher
+### 3. Run the app
 
+**From the .exe** (Windows) — just double-click `IPVideoPublisher.exe`.
+
+**From source**
 ```bash
 python ip_video_test_publisher.py
 ```
 
-Or on Windows, you can double-click the file if Python is associated with `.py` files.
+No pip installs needed — only standard library.
 
-No virtual environment or pip packages required — the script uses only the Python standard library.
+---
 
-## Usage
+## Using the app
 
-1. **Select Protocol** — Choose RTSP or SRT using the radio buttons at the top
-2. **Configure Streams** — Each row represents one stream with configurable host, port, path/stream ID, and display ID
-3. **Choose a source** — Select *Test Video* (default) or *MP4 File* per stream using the Source drop-down
-   - When *MP4 File* is selected, click **Browse…** to pick a file; the video loops automatically
-   - Supported formats: `.mp4`, `.mkv`, `.avi`, `.mov`, `.m4v`
-4. **Customise overlays** — Each stream has two optional burned-in overlays:
-   - **Overlay label** — editable text shown in the top-left corner; defaults to the test-pattern name or the MP4 filename (auto-filled on Browse); leave blank to hide it entirely
-   - **Show clock** checkbox — uncheck to suppress the real-time clock in the top-right corner
-5. **Click "Start"** on individual streams or **"Start All"** to begin publishing
-6. The status column shows `PUSHING → url` when a stream is active
-7. **Click "Stop"** or **"Stop All"** to terminate streams
+Pick your protocol at the top (RTSP or SRT), then configure each stream row — host, port, and path. Hit **Start** on individual streams or **Start All** to kick them all off at once.
 
-**Important**: Change the protocol BEFORE starting any streams. You cannot change protocols while streams are running.
+Each stream has a couple of extra options:
 
-### Viewing streams
+- **Source** — either a built-in test pattern or an MP4 file. For MP4, click Browse and pick a file; it'll loop automatically.
+- **Overlay label** — text burned into the top-left of the video. Defaults to the stream name or filename. Clear it to hide.
+- **Show clock** — real-time clock in the top-right corner. Uncheck to turn it off.
 
-#### RTSP
-Connect to published streams with any RTSP client:
+You can't switch protocols while streams are running — stop them first.
+
+### Watching the streams
 
 ```bash
-# ffplay
+# RTSP
 ffplay rtsp://127.0.0.1:8554/stream1
 
-# VLC
-vlc rtsp://127.0.0.1:8554/stream1
-
-# Or in VLC: Media → Open Network Stream → paste the URL
-```
-
-#### SRT
-Connect to published SRT streams:
-
-```bash
-# ffplay
+# SRT
 ffplay srt://127.0.0.1:8890?streamid=read:/stream1
-
-# VLC (if SRT support is enabled)
-vlc srt://127.0.0.1:8890?streamid=read:/stream1
 ```
 
-### Default Configuration
+VLC works too — just paste the URL into Media → Open Network Stream.
 
-| Stream | Pattern | RTSP Path | SRT Stream ID |
-|--------|---------|-----------|---------------|
+### Default streams
+
+| # | Pattern | RTSP | SRT stream ID |
+|---|---------|------|---------------|
 | 1 | SMPTE Bars | `/stream1` | `stream1` |
 | 2 | Test Pattern | `/stream2` | `stream2` |
-| 3 | Color Bars (blue) | `/stream3` | `stream3` |
+| 3 | Solid Blue | `/stream3` | `stream3` |
 | 4 | Noise | `/stream4` | `stream4` |
 
-All streams output **1280x720 @ 30fps H.264** at **2 Mbps**. MP4 sources are automatically scaled and resampled to match this format. Overlays (label and clock) are enabled by default when a font is found on the system.
+All streams push **1280×720 @ 30fps, H.264, ~2 Mbps**.
 
-## Platform-Specific Notes
+---
 
-### Windows
-- The GUI works natively on Windows 10/11
-- Fonts are automatically detected from `C:/Windows/Fonts/`
-- If ffmpeg is not in PATH, you can place `ffmpeg.exe` in the same folder as the script
+## Building the .exe (Windows)
 
-### Linux
-- Fonts are automatically detected from `/usr/share/fonts/`
-- Requires X11 display (should work out of the box on most desktop distros)
+Place `ffmpeg.exe` in the repo folder, then run:
 
-
-### macOS
-- Fonts are automatically detected from system font directories
-- GUI uses native Tkinter (included with Python)
-
-## Protocol Comparison
-
-| Feature | RTSP | SRT |
-|---------|------|-----|
-| **Default Port** | 8554 | 8890 |
-| **Transport** | TCP | UDP |
-| **Latency** | ~1-2 seconds | ~200-500ms |
-| **Network Resilience** | Good | Excellent (packet recovery) |
-| **Firewall Friendly** | Yes (TCP) | May need UDP forwarding |
-| **Use Case** | Standard IP cameras, general streaming | Low-latency, internet streaming |
-
-## Logging
-
-All events are logged to the console with timestamps:
-
-```
-14:20:08 [INFO] ffmpeg found - launching GUI
-14:20:10 [INFO] Launching ffmpeg to rtsp://127.0.0.1:8554/stream1
-14:20:10 [INFO] ffmpeg started (pid 10211), pushing to rtsp://127.0.0.1:8554/stream1
-14:20:45 [INFO] Stopping publisher for rtsp://127.0.0.1:8554/stream1 (pid 10211)
+```bat
+build.bat
 ```
 
-Change `level=logging.INFO` in the script to reduce verbosity (only warnings and errors).
+This installs PyInstaller if needed and bundles everything into `dist\IPVideoPublisher.exe`. The resulting exe includes ffmpeg — no separate install required on the target machine.
+
+---
 
 ## Troubleshooting
 
-### "ffmpeg not found"
-- **Windows**: Ensure `ffmpeg.exe` is in PATH or in the same folder as the script
-- **Linux/Mac**: Install with your package manager (`apt`, `brew`, etc.)
+**"ffmpeg not found"** — Put `ffmpeg.exe` on your PATH or in the same folder as the script/exe.
 
-### No text overlay on streams
-- The script couldn't find a suitable font file — overlays require a TTF font
-- Streams will work fine, just without any burned-in text
-- On Windows, ensure fonts exist in `C:/Windows/Fonts/`
-- You can also hide overlays intentionally: clear the **Overlay label** field and uncheck **Show clock**
+**No text overlay** — The app couldn't find a TTF font. Streams still work fine, just without burned-in text. On Windows this shouldn't happen; on Linux you may need to install `fonts-dejavu`.
 
-### Stream won't start or immediately fails
-- Check that the server is running and accessible
-- Verify the port is correct (8554 for RTSP, 8890 for SRT)
-- Check the console logs for detailed ffmpeg error messages
+**Stream starts then immediately stops** — Check the server is up and the port is right. The console window (or log output) will have the ffmpeg error.
 
-### MP4 stream fails immediately
-- Confirm the file path is correct and the file is readable
-- Ensure ffmpeg was built with support for the file's codec (H.264/AAC files work universally)
-- Audio is automatically stripped from MP4 sources; video-only output is expected
+**MP4 won't play** — Make sure ffmpeg can decode the file. H.264/AAC .mp4 files work universally. Audio is stripped automatically.
 
-### GUI doesn't appear (WSL on Windows 10)
-- Install and configure an X server like VcXsrv
-- Set `DISPLAY` environment variable: `export DISPLAY=:0`

@@ -5,4 +5,17 @@ env/
 .env/
 
 #backups
-backup/ 
+backup/
+
+# PyInstaller build output
+dist/
+build/
+*.spec
+
+# ffmpeg binary (too large for GitHub; download separately)
+ffmpeg.exe
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
