@@ -1,0 +1,49 @@
+{
+  "protocol": "RTSP",
+  "streams": [
+    {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 8554,
+      "path": "/stream1",
+      "stream_id": "1",
+      "source": "test_video",
+      "mp4_path": "",
+      "overlay_label": "Stream 1 - SMPTE Bars",
+      "show_clock": true
+    },
+    {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 8554,
+      "path": "/stream2",
+      "stream_id": "2",
+      "source": "test_video",
+      "mp4_path": "",
+      "overlay_label": "Stream 2 - Test Pattern",
+      "show_clock": true
+    },
+    {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 8554,
+      "path": "/stream3",
+      "stream_id": "3",
+      "source": "test_video",
+      "mp4_path": "",
+      "overlay_label": "Stream 3 - Color Bars",
+      "show_clock": true
+    },
+    {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 8554,
+      "path": "/stream4",
+      "stream_id": "4",
+      "source": "test_video",
+      "mp4_path": "",
+      "overlay_label": "Stream 4 - Noise",
+      "show_clock": true
+    }
+  ]
+}

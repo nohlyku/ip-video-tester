@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 IP Video Stream Publisher
 Generates and pushes 4 independent video streams to a remote server
@@ -18,11 +19,12 @@ import shutil
 import threading
 import time
 import os
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
 import sys
 import logging
 import platform
+import argparse
+import json
+import signal
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -124,6 +126,57 @@ STREAM_PRESETS = [
         "srt_default_streamid": "stream4",
     },
 ]
+
+# ── Default CLI config ────────────────────────────────────────────────────────
+DEFAULT_CONFIG = {
+    "protocol": "RTSP",
+    "streams": [
+        {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": 8554,
+            "path": "/stream1",
+            "stream_id": "1",
+            "source": "test_video",
+            "mp4_path": "",
+            "overlay_label": "Stream 1 - SMPTE Bars",
+            "show_clock": True,
+        },
+        {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": 8554,
+            "path": "/stream2",
+            "stream_id": "2",
+            "source": "test_video",
+            "mp4_path": "",
+            "overlay_label": "Stream 2 - Test Pattern",
+            "show_clock": True,
+        },
+        {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": 8554,
+            "path": "/stream3",
+            "stream_id": "3",
+            "source": "test_video",
+            "mp4_path": "",
+            "overlay_label": "Stream 3 - Color Bars",
+            "show_clock": True,
+        },
+        {
+            "enabled": True,
+            "host": "127.0.0.1",
+            "port": 8554,
+            "path": "/stream4",
+            "stream_id": "4",
+            "source": "test_video",
+            "mp4_path": "",
+            "overlay_label": "Stream 4 - Noise",
+            "show_clock": True,
+        },
+    ],
+}
 
 
 # ── Stream Publisher ──────────────────────────────────────────────────────────
@@ -724,8 +777,132 @@ class App:
         self.root.destroy()
 
 
+# ── CLI / headless mode ───────────────────────────────────────────────────────
+def run_cli(config_path: str, font_path: str | None) -> None:
+    """Start streams from a JSON config file and block until Ctrl+C / SIGTERM."""
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        log.critical("Config file not found: %s", config_path)
+        sys.exit(1)
+    except json.JSONDecodeError as exc:
+        log.critical("Invalid JSON in config file: %s", exc)
+        sys.exit(1)
+
+    protocol = config.get("protocol", "RTSP").upper()
+    if protocol not in ("RTSP", "SRT"):
+        log.critical("protocol must be 'RTSP' or 'SRT', got %r", protocol)
+        sys.exit(1)
+
+    streams_cfg = config.get("streams", [])
+    if not streams_cfg:
+        log.critical("No streams defined in config")
+        sys.exit(1)
+    if len(streams_cfg) > 4:
+        log.warning("Config has more than 4 streams; only the first 4 will be used")
+        streams_cfg = streams_cfg[:4]
+
+    publishers: list[StreamPublisher] = []
+    for i, cfg in enumerate(streams_cfg):
+        preset = STREAM_PRESETS[i]
+        if not cfg.get("enabled", True):
+            log.info("Stream %d disabled, skipping", i + 1)
+            continue
+
+        if protocol == "RTSP":
+            host = cfg.get("host", preset["rtsp_default_host"])
+            port = cfg.get("port", int(preset["rtsp_default_port"]))
+            path_or_id = cfg.get("path", preset["rtsp_default_path"])
+        else:
+            host = cfg.get("host", preset["srt_default_host"])
+            port = cfg.get("port", int(preset["srt_default_port"]))
+            path_or_id = cfg.get("path", preset["srt_default_streamid"])
+
+        stream_id = str(cfg.get("stream_id", i + 1))
+        source = cfg.get("source", "test_video")
+        mp4_path = cfg.get("mp4_path", "") or None
+        overlay_label = cfg.get("overlay_label", preset["label"])
+        show_clock = cfg.get("show_clock", True)
+
+        if source == "mp4_file":
+            if not mp4_path:
+                log.error("Stream %d: source is 'mp4_file' but mp4_path is empty; skipping", i + 1)
+                continue
+        else:
+            mp4_path = None
+
+        pub = StreamPublisher(
+            protocol, host, port, path_or_id,
+            preset["src"], preset["label"], stream_id,
+            font_path,
+            mp4_path=mp4_path,
+            overlay_label=overlay_label,
+            show_clock=show_clock,
+        )
+        publishers.append(pub)
+
+    if not publishers:
+        log.error("No streams are enabled or valid; nothing to do")
+        sys.exit(1)
+
+    stop_event = threading.Event()
+
+    def _shutdown(sig, _frame):
+        log.info("Received signal %s — stopping streams…", sig)
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    for pub in publishers:
+        pub.start()
+    log.info("Started %d stream(s). Press Ctrl+C to stop.", len(publishers))
+
+    stop_event.wait()
+
+    for pub in publishers:
+        pub.stop()
+    log.info("All streams stopped")
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="IP Video Stream Publisher — push up to 4 test streams via RTSP or SRT.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  # launch the GUI (default)\n"
+            "  python ip_video_test_publisher.py\n\n"
+            "  # headless / CLI mode\n"
+            "  python ip_video_test_publisher.py --config streams_config.json\n\n"
+            "  # generate a starter config file\n"
+            "  python ip_video_test_publisher.py --generate-config streams_config.json"
+        ),
+    )
+    parser.add_argument(
+        "--config", metavar="FILE",
+        help="Run headless using this JSON config file (no GUI).",
+    )
+    parser.add_argument(
+        "--generate-config", metavar="FILE",
+        help="Write a default config file to FILE and exit.",
+    )
+    args = parser.parse_args()
+
+    # ── Generate config and exit ──────────────────────────────────────────────
+    if args.generate_config:
+        out = args.generate_config
+        if os.path.exists(out):
+            log.error("File already exists: %s", out)
+            sys.exit(1)
+        with open(out, "w") as fh:
+            json.dump(DEFAULT_CONFIG, fh, indent=2)
+        log.info("Default config written to: %s", out)
+        sys.exit(0)
+
+    # ── ffmpeg check (shared by both modes) ──────────────────────────────────
     _ffmpeg = get_ffmpeg_exe()
     if _ffmpeg == "ffmpeg" and shutil.which("ffmpeg") is None:
         msg = (
@@ -735,7 +912,9 @@ if __name__ == "__main__":
             "macOS: brew install ffmpeg"
         )
         log.critical(msg)
-        messagebox.showerror("ffmpeg not found", msg)
+        if not args.config:
+            from tkinter import messagebox
+            messagebox.showerror("ffmpeg not found", msg)
         sys.exit(1)
 
     font_path = get_default_font()
@@ -744,7 +923,15 @@ if __name__ == "__main__":
     else:
         log.info("No font found - text overlay disabled")
 
-    # Enable DPI awareness on Windows to prevent blurry text on scaled displays
+    # ── Headless / CLI mode ───────────────────────────────────────────────────
+    if args.config:
+        run_cli(args.config, font_path)
+        sys.exit(0)
+
+    # ── GUI mode ──────────────────────────────────────────────────────────────
+    import tkinter as tk
+    from tkinter import ttk, messagebox, filedialog
+
     if platform.system() == "Windows":
         try:
             import ctypes

@@ -28,7 +28,7 @@ if errorlevel 1 (
 echo.
 echo [2/2] Building executable...
 python -m PyInstaller ^
-    --onefile ^
+    --onedir ^
     --windowed ^
     --name "IPVideoPublisher" ^
     --add-binary "ffmpeg.exe;." ^
@@ -44,6 +44,12 @@ if errorlevel 1 (
 echo.
 echo ============================================
 echo  Build complete!
-echo  Executable: dist\IPVideoPublisher.exe
+echo  Folder:     dist\IPVideoPublisher\
+echo  Executable: dist\IPVideoPublisher\IPVideoPublisher.exe
+echo.
+echo  Distribute the entire dist\IPVideoPublisher\ folder
+echo  (zip it up). ffmpeg.exe is bundled inside.
+echo  Windows Firewall will prompt once on first stream
+echo  start - after that the rule is saved permanently.
 echo ============================================
 pause
